@@ -13,7 +13,7 @@ library(ggpubr)
 library(GGally)
 
 # Carga
-data <- read.csv("D:/Tetra3/Modelos_Lineales/Proyecto_Final/healthcare-dataset-stroke-data.csv", sep = ";", na.strings = c("N/A"))
+data <- read.csv("C:/Users/cecil/OneDrive/Documentos/GitHub_Proyectos/ML_Proyecto_Final/healthcare-dataset-stroke-data.csv", sep = ";", na.strings = c("N/A"))
 print(data)
 
 # Vista general
