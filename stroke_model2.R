@@ -186,4 +186,35 @@ lines(roc_gam, col = "green", print.auc = TRUE)
 lines(roc_rose, col = "red", print.auc = TRUE)
 legend("bottomright", legend = c("GLM Stepwise", "GAM", "GLM ROSE"),
        col = c("blue", "green", "red"), lwd = 2)
+#------------------------------------------------------------------------------------
+# Crear función para extraer métricas desde confusionMatrix
+extraer_metricas <- function(conf, auc_val, modelo_nombre, aic_val = NA) {
+  data.frame(
+    Modelo = modelo_nombre,
+    AUC = round(auc_val, 4),
+    Accuracy = round(conf$overall["Accuracy"], 4),
+    Sensibilidad = round(conf$byClass["Sensitivity"], 4),
+    Especificidad = round(conf$byClass["Specificity"], 4),
+    Precision = round(conf$byClass["Precision"], 4),
+    Valor_Negativo = round(conf$byClass["Neg Pred Value"], 4),
+    Balanced_Accuracy = round(conf$byClass["Balanced Accuracy"], 4),
+    AIC = round(aic_val, 2)
+  )
+}
 
+# Generar tabla para cada modelo
+tabla_glm <- extraer_metricas(conf_glm, auc_glm, "GLM Stepwise", AIC(glm_step))
+tabla_gam <- extraer_metricas(conf_gam, auc_gam, "GAM", NA)
+tabla_rose <- extraer_metricas(conf_rose, auc_rose, "GLM ROSE", AIC(glm_rose))
+
+# Combinar tablas
+tabla_comparativa <- bind_rows(tabla_glm, tabla_gam, tabla_rose)
+
+# Ver tabla
+print(tabla_comparativa)
+
+
+
+#table(glm_pred_class)
+#table(gam_pred_class)
+#table(rose_pred_class)
