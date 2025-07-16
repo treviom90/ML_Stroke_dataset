@@ -13,6 +13,9 @@ library(ROSE)
 library(devtools)
 library(DMwR2)
 library(rpart)
+library(GGally)
+library(tidyr)
+library(ggplot2)
 # --- Carga y preprocesamiento datos ---
 data <- read.csv("C:/Users/cecil/OneDrive/Documentos/GitHub_Proyectos/ML_Proyecto_Final/healthcare-dataset-stroke-data.csv",
                  sep = ";", na.strings = c("N/A"))
@@ -61,24 +64,62 @@ data[categorical_vars] <- lapply(data[categorical_vars], factor)
 #------------------------------------------------------------------------------------
 # Análisis descriptivo gráfico
 
-# Densidades para variables numéricas según clase stroke (para ver diferencias en distribución)
-ggplot(data, aes(x=age, fill=stroke)) + geom_density(alpha=0.5)
-ggplot(data, aes(x=avg_glucose_level, fill=stroke)) + geom_density(alpha=0.5)
-ggplot(data, aes(x=bmi, fill=stroke)) + geom_density(alpha=0.5)
-
-# Boxplots para comparar valores numéricos por grupo stroke
-ggplot(data, aes(x=stroke, y=age)) + geom_boxplot()
-ggplot(data, aes(x=stroke, y=avg_glucose_level)) + geom_boxplot()
-
-# Barras proporcionales para variables categóricas según stroke
-ggplot(data, aes(x=gender, fill=stroke)) + geom_bar(position = "fill")
-ggplot(data, aes(x=ever_married, fill=stroke)) + geom_bar(position = "fill")
-
-# Matriz de correlación visual entre variables numéricas relevantes
+# 1. Matriz de variables numéricas con GGally::ggpairs
 data_numeric <- data %>%
-  dplyr::select(age, avg_glucose_level, bmi) %>%
-  na.omit()
-ggpairs(data_numeric)
+  dplyr::select(age, avg_glucose_level, bmi, stroke) %>%
+  na.omit() %>%
+  mutate(stroke = factor(stroke))
+
+ggpairs(data_numeric, mapping = aes(color = stroke), 
+        columns = 1:3,
+        upper = list(continuous = wrap("cor", size = 3)))
+
+# 2. Gráfico de densidades y boxplots en facetas con facet_wrap
+# Formato largo
+data_long <- data[, c("age", "avg_glucose_level", "bmi", "stroke")] %>%
+  pivot_longer(cols = -stroke, names_to = "variable", values_to = "valor") %>%
+  mutate(stroke = factor(stroke))
+
+ggplot(data_long, aes(x = valor, fill = stroke)) +
+  geom_density(alpha = 0.5) +
+  facet_wrap(~variable, scales = "free") +
+  theme_minimal()
+
+# Boxplots
+ggplot(data_long, aes(x = stroke, y = valor, fill = stroke)) +
+  geom_boxplot() +
+  facet_wrap(~variable, scales = "free_y") +
+  theme_minimal()
+
+#3. Gráficos de barras proporcionales para variables categóricas
+data_cat <- data[, c("gender", "ever_married", "work_type", "Residence_type", "smoking_status", "stroke")] %>%
+  pivot_longer(cols = -stroke, names_to = "variable", values_to = "valor") %>%
+  mutate(stroke = factor(stroke))
+
+ggplot(data_cat, aes(x = valor, fill = stroke)) +
+  geom_bar(position = "fill") +
+  facet_wrap(~variable, scales = "free_x") +
+  theme_minimal() +
+  labs(y = "Proporción", x = "", fill = "Stroke")
+
+## Densidades para variables numéricas según clase stroke (para ver diferencias en distribución)
+#ggplot(data, aes(x=age, fill=stroke)) + geom_density(alpha=0.5)
+#ggplot(data, aes(x=avg_glucose_level, fill=stroke)) + geom_density(alpha=0.5)
+#ggplot(data, aes(x=bmi, fill=stroke)) + geom_density(alpha=0.5)
+
+## Boxplots para comparar valores numéricos por grupo stroke
+#ggplot(data, aes(x=stroke, y=age)) + geom_boxplot()
+#ggplot(data, aes(x=stroke, y=avg_glucose_level)) + geom_boxplot()
+
+## Barras proporcionales para variables categóricas según stroke
+#ggplot(data, aes(x=gender, fill=stroke)) + geom_bar(position = "fill")
+#ggplot(data, aes(x=ever_married, fill=stroke)) + geom_bar(position = "fill")
+
+## Matriz de correlación visual entre variables numéricas relevantes
+#data_numeric <- data %>%
+#  dplyr::select(age, avg_glucose_level, bmi) %>%
+#  na.omit()
+#ggpairs(data_numeric)
 #------------------------------------------------------------------------------------
 # --- Función para sincronizar niveles factores en testData ---
 factor_vars <- c('gender', 'hypertension', 'heart_disease', 'work_type', 
@@ -128,7 +169,8 @@ glm_cv <- train(stroke ~ ., data = trainData,
                 trControl = train_control,
                 metric = "ROC")
 
-print(glm_cv)
+#print(glm_cv)
+summary(glm_cv)
 
 # 2) GLM con ROSE + stepwise con validación cruzada
 
@@ -142,7 +184,8 @@ glm_rose_cv <- train(stroke ~ ., data = data_rose,
                      trControl = train_control,
                      metric = "ROC")
 
-print(glm_rose_cv)
+#print(glm_rose_cv)
+summary(glm_rose_cv)
 
 # 3) GAM con selección automática y validación cruzada
 
@@ -173,23 +216,7 @@ for (i in 1:k) {
   
   cat("Fold", i, "- AUC:", aucs[i], "\n")
 }
-## 1) GLM completo + selección stepwise
-#glm_fit <- glm(stroke ~ ., data = trainData, family = binomial)
-#glm_step <- stepAIC(glm_fit, direction = "both")
-#summary(glm_step)
-
-## 2) GLM con ROSE + stepwise
-#data_rose <- ROSE(stroke ~ ., data = trainData, seed = 123)$data
-#glm_rose_fit <- glm(stroke ~ ., data = data_rose, family = binomial)
-#glm_rose_step <- stepAIC(glm_rose_fit, direction = "both")
-#summary(glm_rose_step)
-
-## 3) GAM con selección automática de suavizados
-#modelo_gam <- gam(stroke ~ s(age) + s(avg_glucose_level) + s(bmi) + gender + 
-                    #hypertension + heart_disease + ever_married + work_type + 
-                   # Residence_type + smoking_status,
-                  #data = trainData, family = binomial, select = TRUE)
-#summary(modelo_gam)
+summary(modelo_gam)
 #------------------------------------------------------------------------------------
 # Sincronizar niveles de factores en testData
 testData <- sync_factor_levels(trainData, testData, factor_vars)
@@ -240,10 +267,11 @@ plot(glm_rose, main = "Residuos - GLM ROSE")
 par(mfrow = c(1, 1))       # restablece layout
 
 # 3) GAM
-# Gráficos de efectos suavizados y residuos
-par(mfrow = c(2, 2))
-plot(modelo_gam, residuals = TRUE, se = TRUE, pch = 16)
-par(mfrow = c(1, 1))
+# Residuos vs valores ajustados
+plot(modelo_gam, resid = TRUE)
+
+# O para gráficos más completos:
+gam.check(modelo_gam)
 #------------------------------------------------------------------------------------
 # --- Curvas ROC comparativas ---
 plot(roc_glm, col = "blue", print.auc = TRUE, main = "Curvas ROC - Modelos Stroke")
