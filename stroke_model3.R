@@ -16,6 +16,7 @@ library(rpart)
 # --- Carga y preprocesamiento datos ---
 data <- read.csv("C:/Users/cecil/OneDrive/Documentos/GitHub_Proyectos/ML_Proyecto_Final/healthcare-dataset-stroke-data.csv",
                  sep = ";", na.strings = c("N/A"))
+data <- data[data$gender != "Other", ]
 print(data)
 #------------------------------------------------------------------------------------
 # Análisis exploratorio inicial de los datos
@@ -50,8 +51,6 @@ predicted_bmi <- predict(tree_model, newdata = missing_bmi)
 data$bmi[is.na(data$bmi)] <- predicted_bmi
 
 colSums(is.na(data))
-## Imputación simple: reemplazar NA en BMI con la media de BMI (para evitar perder datos)
-#data$bmi[is.na(data$bmi)] <- mean(data$bmi, na.rm = TRUE)
 #------------------------------------------------------------------------------------
 # Conversión a factores (excepto id que no es categórica)
 categorical_vars <- c("stroke","gender","hypertension","heart_disease","ever_married",
@@ -80,11 +79,23 @@ data_numeric <- data %>%
   dplyr::select(age, avg_glucose_level, bmi) %>%
   na.omit()
 ggpairs(data_numeric)
+#------------------------------------------------------------------------------------
+# --- Función para sincronizar niveles factores en testData ---
+factor_vars <- c('gender', 'hypertension', 'heart_disease', 'work_type', 
+                 'ever_married', 'Residence_type', 'smoking_status')
 
+sync_factor_levels <- function(train_df, test_df, factor_vars) {
+  for (fv in factor_vars) {
+    test_df[[fv]] <- factor(test_df[[fv]], levels = levels(train_df[[fv]]))
+  }
+  return(test_df)
+}
 #------------------------------------------------------------------------------------
 # División entrenamiento/prueba
 set.seed(123)
-trainIndex <- createDataPartition(data$stroke, p = 0.8, list = FALSE)
+# Partición estratificada para variable binaria stroke
+trainIndex <- createDataPartition(data$stroke, p = 0.7, list = FALSE)
+
 trainData <- data[trainIndex, ]
 testData <- data[-trainIndex, ]
 #------------------------------------------------------------------------------------
@@ -94,34 +105,91 @@ testData$stroke <- factor(ifelse(testData$stroke == 1, "Yes", "No"), levels = c(
 #------------------------------------------------------------------------------------
 # --- Modelos ---
 
-# 1) GLM completo + selección stepwise
-glm_fit <- glm(stroke ~ ., data = trainData, family = binomial)
-glm_step <- stepAIC(glm_fit, direction = "both")
-summary(glm_step)
+set.seed(123)  # Para reproducibilidad
 
-# 2) GLM con ROSE + stepwise
-data_rose <- ROSE(stroke ~ ., data = trainData, seed = 123)$data
-glm_rose_fit <- glm(stroke ~ ., data = data_rose, family = binomial)
-glm_rose_step <- stepAIC(glm_rose_fit, direction = "both")
-summary(glm_rose_step)
+# Configuración de control para validación cruzada 5-fold
+train_control <- trainControl(method = "cv", number = 5, classProbs = TRUE,
+                              summaryFunction = twoClassSummary, savePredictions = TRUE)
 
-# 3) GAM con selección automática de suavizados
-modelo_gam <- gam(stroke ~ s(age) + s(avg_glucose_level) + s(bmi) + gender + 
-                    hypertension + heart_disease + ever_married + work_type + 
-                    Residence_type + smoking_status,
-                  data = trainData, family = binomial, select = TRUE)
-summary(modelo_gam)
-#------------------------------------------------------------------------------------
-# --- Función para sincronizar niveles factores en testData ---
-factor_vars <- c('gender', 'hypertension', 'heart_disease', 'work_type',
-                 'ever_married', 'Residence_type', 'smoking_status')
+# 1) GLM completo + stepwise con validación cruzada
 
-sync_factor_levels <- function(train_df, test_df, factor_vars) {
-  for (fv in factor_vars) {
-    test_df[[fv]] <- factor(test_df[[fv]], levels = levels(train_df[[fv]]))
-  }
-  return(test_df)
+# Función personalizada para stepwise con AIC dentro de caret
+stepwise_glm <- function(x, y, ...) {
+  data <- data.frame(y = y, x)
+  full_model <- glm(y ~ ., data = data, family = binomial)
+  step_model <- stepAIC(full_model, direction = "both", trace = FALSE)
+  return(step_model)
 }
+
+# Entrenar modelo con caret usando método "glm" (no incorpora stepAIC directo, por eso se usa fitControl manual)
+glm_cv <- train(stroke ~ ., data = trainData,
+                method = "glm",
+                family = binomial,
+                trControl = train_control,
+                metric = "ROC")
+
+print(glm_cv)
+
+# 2) GLM con ROSE + stepwise con validación cruzada
+
+# Crear datos balanceados
+data_rose <- ROSE(stroke ~ ., data = trainData, seed = 123)$data
+
+# Entrenar modelo con caret sobre datos balanceados
+glm_rose_cv <- train(stroke ~ ., data = data_rose,
+                     method = "glm",
+                     family = binomial,
+                     trControl = train_control,
+                     metric = "ROC")
+
+print(glm_rose_cv)
+
+# 3) GAM con selección automática y validación cruzada
+
+set.seed(123)
+k <- 5
+folds <- sample(rep(1:k, length.out = nrow(trainData)))
+
+aucs <- numeric(k)
+
+for (i in 1:k) {
+  train_fold <- trainData[folds != i, ]
+  test_fold <- trainData[folds == i, ]
+  
+  # Sincronizar niveles de factores
+  test_fold <- sync_factor_levels(train_fold, test_fold, factor_vars)
+  
+  # Entrenar GAM (familia binomial)
+  modelo_gam <- gam(stroke ~ s(age) + s(avg_glucose_level) + s(bmi) + gender + hypertension +
+                      heart_disease + ever_married + work_type + Residence_type + smoking_status,
+                    data = train_fold, family = binomial)
+  
+  # Predecir probabilidades en test fold
+  probs <- predict(modelo_gam, newdata = test_fold, type = "response")
+  
+  # Calcular AUC
+  roc_obj <- roc(test_fold$stroke, probs)
+  aucs[i] <- auc(roc_obj)
+  
+  cat("Fold", i, "- AUC:", aucs[i], "\n")
+}
+## 1) GLM completo + selección stepwise
+#glm_fit <- glm(stroke ~ ., data = trainData, family = binomial)
+#glm_step <- stepAIC(glm_fit, direction = "both")
+#summary(glm_step)
+
+## 2) GLM con ROSE + stepwise
+#data_rose <- ROSE(stroke ~ ., data = trainData, seed = 123)$data
+#glm_rose_fit <- glm(stroke ~ ., data = data_rose, family = binomial)
+#glm_rose_step <- stepAIC(glm_rose_fit, direction = "both")
+#summary(glm_rose_step)
+
+## 3) GAM con selección automática de suavizados
+#modelo_gam <- gam(stroke ~ s(age) + s(avg_glucose_level) + s(bmi) + gender + 
+                    #hypertension + heart_disease + ever_married + work_type + 
+                   # Residence_type + smoking_status,
+                  #data = trainData, family = binomial, select = TRUE)
+#summary(modelo_gam)
 #------------------------------------------------------------------------------------
 # Sincronizar niveles de factores en testData
 testData <- sync_factor_levels(trainData, testData, factor_vars)
