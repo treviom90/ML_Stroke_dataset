@@ -91,14 +91,6 @@ glm_fit <- glm(stroke ~ ., data=trainData, family=binomial)
 # Selección de variables por paso hacia adelante y atrás usando AIC
 glm_step <- stepAIC(glm_fit, direction = "both")
 summary(glm_step)
-
-#------------------------------------------------------------------------------------
-# Modelo aditivo generalizado (GAM) con variables seleccionadas (según stepAIC)
-modelo_gam <- gam(stroke ~ s(age) + s(avg_glucose_level) + s(bmi) + gender + hypertension + heart_disease + ever_married + work_type + Residence_type + smoking_status,
-                  data = trainData, family = binomial)
-summary(modelo_gam)
-plot(modelo_gam, pages=1, se=TRUE)  # Visualización de efectos suavizados con intervalos de confianza
-
 #------------------------------------------------------------------------------------
 # --- Manejo del desbalance en datos con técnica ROSE ---
 
@@ -109,7 +101,30 @@ table(data_rose$stroke)  # Ver tabla balanceada
 # Modelo logístico usando datos balanceados por ROSE
 glm_rose <- glm(stroke ~ ., data = data_rose, family = binomial)
 summary(glm_rose)
+#------------------------------------------------------------------------------------
+# Modelo aditivo generalizado (GAM) Datos originales y sin balance
+modelo_gam <- gam(stroke ~ s(age) + s(avg_glucose_level) + s(bmi) + gender + hypertension + heart_disease + ever_married + work_type + Residence_type + smoking_status,
+                  data = trainData, family = binomial)
+summary(modelo_gam)
+plot(modelo_gam, pages=1, se=TRUE)  # Visualización de efectos suavizados con intervalos de confianza
+#------------------------------------------------------------------------------------
+# --- Diagnóstico de residuos para cada modelo ---
 
+# Diagnóstico para GLM Stepwise
+par(mfrow = c(2, 2))
+plot(glm_step, main = "Diagnóstico - GLM Stepwise")
+par(mfrow = c(1, 1))
+
+# Diagnóstico para GAM
+par(mfrow = c(1, 2))
+plot(modelo_gam, residuals = TRUE, pch = 19)  # Efectos suavizados con residuos
+gam.check(modelo_gam)                        # Verifica supuestos del modelo GAM
+par(mfrow = c(1, 1))
+
+# Diagnóstico para GLM balanceado con ROSE
+par(mfrow = c(2, 2))
+plot(glm_rose, main = "Diagnóstico - GLM ROSE")
+par(mfrow = c(1, 1))
 #------------------------------------------------------------------------------------
 # --- Predicciones sobre conjunto de prueba ---
 
